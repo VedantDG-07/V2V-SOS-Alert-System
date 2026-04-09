@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>V2V Emergency Services</title>
+<<<<<<< HEAD
 
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
@@ -85,18 +86,213 @@
     <div class="card">
       <h2>Incident Map</h2>
       <div id="map"></div>
+=======
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#38bdf8" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <script src="/env-config.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .emergency-call-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:8px; }
+    .call-btn { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; padding:16px 8px; border-radius:14px; border:none; cursor:pointer; font-family:"Poppins",sans-serif; font-weight:600; font-size:13px; text-decoration:none; transition:transform .15s,opacity .15s; }
+    .call-btn:active { transform:scale(.95); opacity:.85; }
+    .call-btn .call-icon { font-size:26px; }
+    .call-btn .call-num { font-size:18px; font-weight:700; }
+    .call-btn-ambulance { background:rgba(239,68,68,.18); color:#ef4444; border:1px solid rgba(239,68,68,.35); }
+    .call-btn-police    { background:rgba(56,189,248,.18); color:#38bdf8; border:1px solid rgba(56,189,248,.35); }
+    .call-btn-fire      { background:rgba(251,146,60,.18); color:#fb923c; border:1px solid rgba(251,146,60,.35); }
+
+    .hospital-list { list-style:none; padding:0; margin:12px 0 0; display:flex; flex-direction:column; gap:10px; }
+    .hospital-item { background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:12px 14px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .hospital-info { flex:1; min-width:0; }
+    .hospital-name { font-weight:600; font-size:14px; color:#e5e7eb; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .hospital-dist { font-size:12px; color:#94a3b8; margin-top:2px; }
+    .hospital-actions { display:flex; gap:8px; flex-shrink:0; }
+    .hospital-nav-btn, .hospital-call-btn { padding:6px 11px; border-radius:8px; border:none; font-size:12px; font-weight:600; cursor:pointer; font-family:"Poppins",sans-serif; text-decoration:none; display:inline-flex; align-items:center; gap:4px; }
+    .hospital-nav-btn  { background:rgba(56,189,248,.2);  color:#38bdf8; border:1px solid rgba(56,189,248,.3); }
+    .hospital-call-btn { background:rgba(16,185,129,.2); color:#10b981; border:1px solid rgba(16,185,129,.3); }
+
+    .hospital-loading { color:#94a3b8; font-size:13px; display:flex; align-items:center; gap:8px; margin-top:12px; }
+    .spinner { width:16px; height:16px; border:2px solid rgba(255,255,255,.1); border-top-color:#38bdf8; border-radius:50%; animation:spin .7s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    .road-msg-list { list-style:none; padding:0; margin:12px 0 0; display:flex; flex-direction:column; gap:8px; }
+    .road-msg-item { background:rgba(255,214,10,.06); border:1px solid rgba(255,214,10,.15); border-radius:10px; padding:10px 13px; font-size:13px; cursor:pointer; }
+    .road-msg-item:active { opacity:.75; }
+    .road-msg-text { color:#fde68a; font-weight:500; }
+    .road-msg-meta { color:#64748b; font-size:11px; margin-top:3px; }
+    .road-msg-empty, .sos-empty { color:#64748b; font-size:13px; margin-top:10px; }
+
+    .post-road-btn { margin-top:14px; width:100%; padding:11px; border-radius:10px; border:1px solid rgba(255,214,10,.3); background:rgba(255,214,10,.15); color:#ffd60a; font-family:"Poppins",sans-serif; font-weight:600; font-size:14px; cursor:pointer; transition:opacity .15s; }
+    .post-road-btn:active { opacity:.7; }
+
+    .road-modal { position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:9000; display:flex; align-items:flex-end; justify-content:center; }
+    .road-modal.hidden { display:none !important; }
+    .road-card { background:#0f172a; border:1px solid rgba(255,255,255,.1); border-radius:20px 20px 0 0; padding:20px; width:100%; max-width:520px; }
+    .road-card h3 { margin-bottom:10px; color:#facc15; font-size:16px; }
+    .road-card textarea { width:100%; height:90px; border-radius:8px; border:none; padding:10px; background:#020617; color:#e5e7eb; resize:none; font-family:"Poppins",sans-serif; font-size:14px; box-sizing:border-box; }
+    .road-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
+    .road-actions button { padding:8px 16px; border-radius:8px; border:none; cursor:pointer; font-family:"Poppins",sans-serif; font-weight:600; font-size:13px; }
+    .road-send-btn { background:#ffd60a; color:#0f172a; }
+    .road-cancel-btn { background:rgba(255,255,255,.08); color:#94a3b8; }
+
+    .active-sos-list { list-style:none; padding:0; margin:12px 0 0; display:flex; flex-direction:column; gap:8px; }
+    .active-sos-item { background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.2); border-radius:10px; padding:10px 13px; display:flex; align-items:center; justify-content:space-between; font-size:13px; }
+    .active-sos-info { flex:1; }
+    .active-sos-loc { color:#fca5a5; font-weight:500; }
+    .active-sos-time { color:#64748b; font-size:11px; margin-top:2px; }
+    .active-sos-nav { padding:6px 11px; border-radius:8px; border:1px solid rgba(239,68,68,.3); background:rgba(239,68,68,.2); color:#ef4444; font-size:12px; font-weight:600; cursor:pointer; font-family:"Poppins",sans-serif; }
+    .section-sub { color:#64748b; font-size:12px; margin:2px 0 6px; }
+
+    .notif-card { background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:14px; margin-bottom:10px; }
+    .notif-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+    .notif-title { font-weight:600; font-size:13px; color:#e5e7eb; }
+    .notif-time { font-size:11px; color:#64748b; }
+    .notif-section { font-size:12px; color:#94a3b8; margin:8px 0 4px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+    .notif-row { display:flex; align-items:center; justify-content:space-between; padding:5px 0; border-bottom:1px solid rgba(255,255,255,.04); font-size:13px; }
+    .notif-row:last-child { border:none; }
+    .notif-label { color:#cbd5e1; }
+    .notif-badge-ok   { background:rgba(16,185,129,.2); color:#10b981; border:1px solid rgba(16,185,129,.3); padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; }
+    .notif-badge-fail { background:rgba(239,68,68,.2);  color:#ef4444; border:1px solid rgba(239,68,68,.3);  padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; }
+    .notif-badge-demo { background:rgba(56,189,248,.15); color:#38bdf8; border:1px solid rgba(56,189,248,.25); padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; }
+    .notif-maps-link { color:#38bdf8; font-size:12px; text-decoration:none; }
+    .notif-empty { color:#64748b; font-size:13px; margin-top:10px; }
+    .demo-label { display:inline-block; background:rgba(251,146,60,.15); color:#fb923c; border:1px solid rgba(251,146,60,.3); border-radius:6px; padding:2px 8px; font-size:11px; font-weight:600; margin-left:8px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="header-left">
+      <button class="hamburger" id="hamburger" aria-label="Menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <h1>V2V Emergency Alert</h1>
+    </div>
+    <div class="header-right">
+      <button class="logout-btn" onclick="logoutUser()">Logout</button>
+    </div>
+  </header>
+
+  <div class="nav-overlay" id="navOverlay"></div>
+  <nav id="navMenu" class="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-title">Menu</span>
+      <button class="sidebar-close" id="sidebarClose">✕</button>
+    </div>
+    <a href="index.html">🏠 Dashboard</a>
+    <a href="map.html">🗺 Map</a>
+    <a href="history.html">📋 Alert History</a>
+    <a href="services.html" class="active">🚑 Services</a>
+    <a href="settings.html">⚙ Settings</a>
+    <button class="sidebar-logout" onclick="logoutUser()">Logout</button>
+  </nav>
+
+  <div id="flashMessage" class="flash-message hidden"></div>
+
+  <div class="main single-column">
+
+    <!-- EMERGENCY NUMBERS -->
+    <div class="card">
+      <h2>🆘 Emergency Numbers</h2>
+      <p class="section-sub">Tap to call instantly</p>
+      <div class="emergency-call-grid">
+        <a href="tel:102" class="call-btn call-btn-ambulance">
+          <span class="call-icon">🚑</span>
+          <span class="call-num">102</span>
+          <span>Ambulance</span>
+        </a>
+        <a href="tel:100" class="call-btn call-btn-police">
+          <span class="call-icon">🚓</span>
+          <span class="call-num">100</span>
+          <span>Police</span>
+        </a>
+        <a href="tel:101" class="call-btn call-btn-fire">
+          <span class="call-icon">🚒</span>
+          <span class="call-num">101</span>
+          <span>Fire</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- ACTIVE SOS -->
+    <div class="card">
+      <h2>🚨 Active SOS Nearby</h2>
+      <p class="section-sub">Live incidents within 5 km</p>
+      <ul class="active-sos-list" id="activeSosList">
+        <li class="sos-empty">No active SOS events nearby</li>
+      </ul>
+    </div>
+
+    <!-- NEARBY HOSPITALS -->
+    <div class="card">
+      <h2>🏥 Nearby Hospitals</h2>
+      <p class="section-sub" id="hospitalSubtitle">Fetching based on your location…</p>
+      <div class="hospital-loading" id="hospitalLoading">
+        <div class="spinner"></div> Finding hospitals near you…
+      </div>
+      <ul class="hospital-list" id="hospitalList" style="display:none"></ul>
+    </div>
+
+    <!-- ROAD ALERTS -->
+    <div class="card">
+      <h2>⚠️ Road Alerts Nearby</h2>
+      <p class="section-sub">Posted by drivers in your area</p>
+      <ul class="road-msg-list" id="roadMsgList">
+        <li class="road-msg-empty">No road alerts nearby</li>
+      </ul>
+      <button class="post-road-btn" onclick="openRoadModal()">📢 Post a Road Alert</button>
+    </div>
+
+    <!-- ER NOTIFICATION LOG -->
+    <div class="card">
+      <h2>📋 SOS Notification Log <span class="demo-label">ER = DEMO</span></h2>
+      <p class="section-sub">Your sent SOS alerts — real SMS to contacts, demo notify to ER services</p>
+      <div id="erNotifLog"><p class="notif-empty">No SOS alerts sent yet</p></div>
+    </div>
+
+    <!-- MAP -->
+    <div class="card">
+      <h2>🗺 Live Incident Map</h2>
+      <div id="map" style="height:320px;border-radius:12px;overflow:hidden;margin-top:8px;"></div>
+>>>>>>> 37bfcf0 (Improved)
     </div>
 
   </div>
 
+<<<<<<< HEAD
   <footer>
     Smart Vehicle Safety • Real-Time Emergency Communication
   </footer>
 
+=======
+  <footer>Smart Vehicle Safety • Real-Time Emergency Communication</footer>
+</div>
+
+<!-- Road Modal -->
+<div id="roadModal" class="road-modal hidden">
+  <div class="road-card">
+    <h3>📢 Post Road Alert</h3>
+    <textarea id="roadText" placeholder="e.g. Road blocked, tree fallen, heavy traffic, pothole…"></textarea>
+    <div class="road-actions">
+      <button class="road-cancel-btn" onclick="closeRoadModal()">Cancel</button>
+      <button class="road-send-btn" onclick="sendRoadMessageUI()">Send Alert</button>
+    </div>
+  </div>
+>>>>>>> 37bfcf0 (Improved)
 </div>
 
 <script type="module" src="firebase-config.js"></script>
 <script type="module" src="app.js"></script>
+<<<<<<< HEAD
 
 </body>
 </html>
+=======
+</body>
+</html>
+>>>>>>> 37bfcf0 (Improved)
