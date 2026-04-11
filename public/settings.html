@@ -4,35 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>V2V Settings</title>
-<<<<<<< HEAD
-
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css" />
-</head>
-
-<body>
-
-<div class="container">
-
-  <!-- HEADER -->
-  <header>
-    <div class="hamburger" id="hamburger">
-      <button style="margin:0">☰</button>
-    </div>
-    <h1>V2V Emergency Alert</h1>
-    <div class="box">
-    <nav>
-        <a href="index.html">Dashboard</a>
-        <a href="map.html">Map</a>
-        <a href="history.html">Alert History</a>
-        <a href="services.html">Services</a>
-        <a href="settings.html">Settings</a>
-      </nav>
-      <button style="margin-top: 0;" onclick="logoutUser()">Logout</button>
-    </div>
-  </header>
-  <!-- FLASH MESSAGE -->
-=======
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#38bdf8" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -69,52 +40,10 @@
     <button class="sidebar-logout" onclick="logoutUser()">Logout</button>
   </nav>
 
->>>>>>> 37bfcf0 (Improved)
   <div id="flashMessage" class="flash-message hidden"></div>
 
   <div class="main single-column">
 
-<<<<<<< HEAD
-    <!-- ACCOUNT STATUS -->
-    <div class="card">
-      <h2>Account Status</h2>
-
-      <p><strong>User ID:</strong> <span id="vehicleId">---</span></p>
-      <p><strong>Account Type:</strong> <span id="accountType">Anonymous</span></p>
-
-      <button onclick="logoutUser()">Logout</button>
-
-      <!-- ACCOUNT SETUP SECTION -->
-      <div id="setupAccountSection" class="setup-section">
-        <h3>Complete Account Setup</h3>
-
-        <input id="setupName" placeholder="Full Name">
-        <input id="setupEmail" type="email" placeholder="Email">
-        <input id="setupPassword" type="password" placeholder="Password">
-        <input id="setupVehicle" placeholder="Vehicle Name">
-        <input id="setupPlate" placeholder="Vehicle Number Plate">
-
-        <button id="completeSetupBtn">
-          Complete Setup
-        </button>
-      </div>
-
-    </div>
-
-    <!-- EMERGENCY CONTACTS -->
-    <div class="card">
-      <h2>Emergency Contacts</h2>
-
-      <p id="contactLockMsg" class="locked-msg">
-        Complete account setup to enable emergency contacts.
-      </p>
-
-      <div id="contactSection" class="hidden">
-        <input id="contactInput" placeholder="Enter Phone Number">
-        <button id="addContactBtn">Add Contact</button>
-
-        <ul id="contactList" class="history-list"></ul>
-=======
     <!-- PROFILE CARD -->
     <div class="card settings-card">
       <div class="settings-card-header">
@@ -287,29 +216,15 @@
         <div class="info-row"><span class="info-label">Mode</span><span class="info-value">Live Vehicle</span></div>
         <button id="installPwaBtn" class="save-btn" style="display:none">📲 Install App</button>
         <button id="clearCacheBtn" class="secondary-btn" style="margin-top:14px;width:100%">🗑 Clear Cache & Reload</button>
->>>>>>> 37bfcf0 (Improved)
       </div>
     </div>
 
   </div>
 
-<<<<<<< HEAD
-  <footer>
-    Smart Vehicle Safety • Real-Time Emergency Communication
-  </footer>
-
-=======
   <footer>Smart Vehicle Safety • Real-Time Emergency Communication</footer>
->>>>>>> 37bfcf0 (Improved)
 </div>
 
 <script type="module" src="firebase-config.js"></script>
 <script type="module" src="app.js"></script>
-<<<<<<< HEAD
-
 </body>
 </html>
-=======
-</body>
-</html>
->>>>>>> 37bfcf0 (Improved)

@@ -4,89 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>V2V Emergency Services</title>
-<<<<<<< HEAD
-
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
-  <link rel="stylesheet" href="style.css" />
-</head>
-
-<body>
-
-<div class="container">
-
-  <!-- HEADER -->
-  <header>
-    <div class="hamburger" id="hamburger">
-      <button style="margin:0">☰</button>
-    </div>
-    <h1>V2V Emergency Alert</h1>
-    <div class="box">
-    <nav>
-        <a href="index.html">Dashboard</a>
-        <a href="map.html">Map</a>
-        <a href="history.html">Alert History</a>
-        <a href="services.html">Services</a>
-        <a href="settings.html">Settings</a>
-      </nav>
-      <button style="margin-top: 0;" onclick="logoutUser()">Logout</button>
-    </div>
-  </header>
-
-  <!-- FLASH MESSAGE -->
-  <div id="flashMessage" class="flash-message hidden"></div>
-
-  <!-- MAIN GRID -->
-  <div class="main">
-
-    <!-- LEFT SIDE: EMERGENCY STATUS -->
-    <div class="card">
-
-      <h2>Emergency Response Dashboard</h2>
-
-      <div id="serviceStatus">
-
-        <div class="service-block">
-          <h3>🚨 Incident Details</h3>
-          <p><strong>Location:</strong> <span id="incidentLocation">Waiting...</span></p>
-          <p><strong>Status:</strong> Alert Received</p>
-        </div>
-
-        <div class="service-block">
-          <h3>🏥 Nearby Hospitals</h3>
-          <ul id="hospitalList"></ul>
-        </div>
-
-        <div class="service-block">
-          <h3>🚑 Ambulance Unit</h3>
-          <p>Status: <strong class="status-green">Dispatched</strong></p>
-          <p>ETA: 5 minutes</p>
-        </div>
-
-        <div class="service-block">
-          <h3>🚓 Police Unit</h3>
-          <p>Status: <strong class="status-blue">Alert Sent</strong></p>
-          <p>Nearest Patrol Assigned</p>
-        </div>
-
-        <div class="service-block">
-          <h3>📨 Notifications</h3>
-          <p>✔ Emergency Contacts – SMS Sent</p>
-          <p>✔ Hospital – Alert Received</p>
-          <p>✔ Police – Alert Received</p>
-        </div>
-
-      </div>
-
-    </div>
-
-    <!-- RIGHT SIDE: MAP -->
-    <div class="card">
-      <h2>Incident Map</h2>
-      <div id="map"></div>
-=======
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#38bdf8" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -259,7 +176,6 @@
     <div class="card">
       <h2>🗺 Live Incident Map</h2>
       <div id="map" style="height:320px;border-radius:12px;overflow:hidden;margin-top:8px;"></div>
->>>>>>> 37bfcf0 (Improved)
     </div>
 
   </div>

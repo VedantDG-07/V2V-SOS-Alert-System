@@ -4,41 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>V2V Alert History</title>
-<<<<<<< HEAD
-
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css" />
-</head>
-
-<body>
-
-<div class="container">
-
-  <!-- HEADER -->
-  <header>
-    <div class="hamburger" id="hamburger">
-      <button style="margin:0">☰</button>
-    </div>
-    <h1>V2V Emergency Alert</h1>
-    <div class="box">
-    <nav>
-        <a href="index.html">Dashboard</a>
-        <a href="map.html">Map</a>
-        <a href="history.html">Alert History</a>
-        <a href="services.html">Services</a>
-        <a href="settings.html">Settings</a>
-      </nav>
-      <button style="margin-top: 0;" onclick="logoutUser()">Logout</button>
-    </div>
-  </header>
-
-  <!-- FLASH MESSAGE -->
-  <div id="flashMessage" class="flash-message hidden"></div>
-
-  <!-- MAIN CONTENT -->
-  <div class="main single-column">
-
-=======
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#38bdf8" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -79,33 +44,11 @@
   <div id="flashMessage" class="flash-message hidden"></div>
 
   <div class="main single-column">
->>>>>>> 37bfcf0 (Improved)
     <div class="card">
       <h2>Accident Alert History</h2>
       <p style="font-size:13px;color:#94a3b8;margin-top:6px;">
         Showing recent emergency alerts received within 2km radius.
       </p>
-<<<<<<< HEAD
-
-      <ul id="historyList" class="history-list">
-        <!-- Filled dynamically from Firestore -->
-      </ul>
-
-    </div>
-
-  </div>
-
-  <!-- FOOTER -->
-  <footer>
-    Smart Vehicle Safety • Real-Time Emergency Communication
-  </footer>
-
-</div>
-
-<script type="module" src="firebase-config.js"></script>
-<script type="module" src="app.js"></script>
-
-=======
       <ul id="historyList" class="history-list"></ul>
     </div>
   </div>
@@ -114,6 +57,5 @@
 </div>
 <script type="module" src="firebase-config.js"></script>
 <script type="module" src="app.js"></script>
->>>>>>> 37bfcf0 (Improved)
 </body>
 </html>
