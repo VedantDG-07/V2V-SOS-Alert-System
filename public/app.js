@@ -31,6 +31,9 @@ import { deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-f
 
 const RADIUS_KM = 2;
 const SOS_COOLDOWN = 30000;
+const LOCATION_CACHE_TTL_MS = 120000;
+const LOCATION_UPDATE_INTERVAL_MS = 10000;
+const GEOLOCATION_OPTIONS = { timeout: 6000, maximumAge: 15000, enableHighAccuracy: false };
 
 let currentUser = null;
 let currentLocation = null;
@@ -50,10 +53,12 @@ let listenerStartTime = Date.now();
 let shownRoadMessages = new Set();
 let activeAccidentMarkers = new Map();
 let activeRoadMarkers = new Map();
+let hasStartedRealtimeListeners = false;
 
 /* CLEANUP TRACKING */
 let unsubscribers = [];
 let locationInterval = null;
+let locationWatchId = null;
 
 
 /* ================= AUTH HANDLING ================= */
@@ -94,15 +99,18 @@ if (savedAcks) {
 function initApp() {
   setVehicleId();
   detectPage();
+  hydrateLocationFromCache();
   updateLocation();
+  ensureRealtimeListenersStarted();
+
   const waitForLocation = setInterval(() => {
     if (currentLocation) {
       clearInterval(waitForLocation);
-      listenForAccidents();
-      listenForRoadMessages();
+      ensureRealtimeListenersStarted();
     }
   }, 500);
-  locationInterval = setInterval(updateLocation, 20000);
+  locationInterval = setInterval(updateLocation, LOCATION_UPDATE_INTERVAL_MS);
+  startLocationWatch();
 }
 
 
@@ -158,6 +166,40 @@ function isValidCoordinate(lat, lon) {
   return !isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
 }
 
+function hydrateLocationFromCache() {
+  try {
+    const cached = localStorage.getItem("lastKnownLocation");
+    if (!cached) return;
+    const parsed = JSON.parse(cached);
+    if (!parsed || !isValidCoordinate(parsed.lat, parsed.lon)) return;
+    if (Date.now() - parsed.ts > LOCATION_CACHE_TTL_MS) return;
+    currentLocation = { lat: parsed.lat, lon: parsed.lon };
+    updateLocationUI();
+    updateMyMarker();
+  } catch (e) {
+    console.warn("Location cache parse error:", e);
+  }
+}
+
+function updateLocationUI() {
+  const myLocText = document.getElementById("myLocation");
+  if (myLocText && currentLocation) {
+    myLocText.textContent = `${currentLocation.lat.toFixed(5)}, ${currentLocation.lon.toFixed(5)}`;
+  }
+}
+
+function applyLocation(lat, lon) {
+  if (!isValidCoordinate(lat, lon)) return;
+  currentLocation = { lat, lon };
+  updateLocationUI();
+  localStorage.setItem("lastKnownLocation", JSON.stringify({
+    lat,
+    lon,
+    ts: Date.now()
+  }));
+  updateMyMarker();
+}
+
 async function reverseGeocode(lat, lon) {
   try {
     const res = await fetch(
@@ -207,14 +249,33 @@ function updateLocation() {
         lon: currentLocation.lon,
         updatedAt: serverTimestamp()
       }).catch(err => console.error("Location update error:", err));
-
-      updateMyMarker();
     },
     (error) => {
       console.warn("Geolocation error:", error.message);
     },
-    { timeout: 10000, maximumAge: 0, enableHighAccuracy: false }
+    GEOLOCATION_OPTIONS
   );
+}
+
+function startLocationWatch() {
+  if (!navigator.geolocation || locationWatchId !== null) return;
+  locationWatchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      const { latitude, longitude } = pos.coords;
+      applyLocation(latitude, longitude);
+    },
+    (error) => {
+      console.warn("Geolocation watch error:", error.message);
+    },
+    GEOLOCATION_OPTIONS
+  );
+}
+
+function ensureRealtimeListenersStarted() {
+  if (hasStartedRealtimeListeners || !currentLocation) return;
+  listenForAccidents();
+  listenForRoadMessages();
+  hasStartedRealtimeListeners = true;
 }
 
 /* ================= MAP ================= */
@@ -1368,17 +1429,20 @@ window.sendRoadMessageUI = async function () {
     return;
   }
 
-  await addDoc(collection(db, "road_messages"), {
-    lat: currentLocation.lat,
-    lon: currentLocation.lon,
-    text: message,
-    senderId: currentUser.uid,
-    createdAt: serverTimestamp(),
-    clientTime: Date.now()
-  }).catch(err => {
+  try {
+    await addDoc(collection(db, "road_messages"), {
+      lat: currentLocation.lat,
+      lon: currentLocation.lon,
+      text: message,
+      senderId: currentUser.uid,
+      createdAt: serverTimestamp(),
+      clientTime: Date.now()
+    });
+  } catch (err) {
     console.error("Road message error:", err);
     showFlash("Failed to send message. Check connection.", "error");
-  });
+    return;
+  }
 
   // close modal after send
   closeRoadModal();
@@ -1460,7 +1524,7 @@ function showRoadMarker(data, id) {
 
   const marker = L.marker([data.lat, data.lon], { icon: yellowIcon })
     .addTo(map)
-    .bindPopup(`⚠ Road Info:<br>${data.text}`);
+    .bindPopup(`⚠ Road Info:<br>${escapeHtml(data.text)}`);
 
   activeRoadMarkers.set(id, marker);
 
@@ -1484,7 +1548,7 @@ window.openRoadModal = function () {
 function addRoadInfoToList(data, id) {
 
   const list = document.getElementById("roadInfoList");
-  if (!list) return;
+  if (!list || !currentLocation) return;
 
   // prevent duplicate entry
   if (document.getElementById("road-item-" + id)) return;
@@ -1509,7 +1573,7 @@ function addRoadInfoToList(data, id) {
                     data.lon
                   );
   li.innerHTML = `
-    <strong>⚠ ${data.text}</strong><br/>
+    <strong>⚠ ${escapeHtml(data.text)}</strong><br/>
     ${data.lat.toFixed(5)}, ${data.lon.toFixed(5)}<br/>
     ${timeStr}
     ${distance}
@@ -1552,6 +1616,20 @@ function cleanupListeners() {
     clearInterval(locationInterval);
     locationInterval = null;
   }
+  if (locationWatchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(locationWatchId);
+    locationWatchId = null;
+  }
+  hasStartedRealtimeListeners = false;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 function initLogin() {
   const loginBtn = document.getElementById("loginBtn");
