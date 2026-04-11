@@ -4,16 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>V2V Emergency Alert System</title>
-<<<<<<< HEAD
-
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
-  <link rel="stylesheet" href="style.css" />
-</head>
-
-=======
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#38bdf8" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -26,38 +16,10 @@
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <link rel="stylesheet" href="style.css" />
 </head>
->>>>>>> 37bfcf0 (Improved)
 <body>
 
 <div class="container">
   <header>
-<<<<<<< HEAD
-    <div class="hamburger" id="hamburger">
-      <button style="margin:0">☰</button>
-    </div>
-    <h1>V2V Emergency Alert</h1>
-    <div class="box">
-    <nav>
-        <a href="index.html">Dashboard</a>
-        <a href="map.html">Map</a>
-        <a href="history.html">Alert History</a>
-        <a href="services.html">Services</a>
-        <a href="settings.html">Settings</a>
-      </nav>
-      <button style="margin-top: 0;" onclick="logoutUser()">Logout</button>
-    </div>
-  </header>
-  <div id="flashMessage" class="flash-message hidden"></div>
-  <div class="main">
-
-    <!-- LEFT SIDE -->
-    <div>
-
-      <!-- SYSTEM STATUS CARD -->
-      <div class="card system-status">
-        <h3>System Status</h3>
-
-=======
   <div class="header-left">
     <button class="hamburger" id="hamburger" aria-label="Menu" aria-expanded="false">
       <span></span><span></span><span></span>
@@ -91,33 +53,19 @@
     <div>
       <div class="card system-status">
         <h3>System Status</h3>
->>>>>>> 37bfcf0 (Improved)
         <p><strong>Bluetooth Module:</strong> Connected</p>
         <p><strong>GPS Module:</strong> Active</p>
         <p><strong>Mode:</strong> Live Vehicle Mode</p>
         <p><strong>Vehicle ID:</strong> <span id="vehicleId">---</span></p>
-<<<<<<< HEAD
-
-=======
         <p><strong>My Location:</strong> <span id="myLocation" style="color:#38bdf8;font-size:13px;">Locating…</span></p>
->>>>>>> 37bfcf0 (Improved)
         <div id="packetBox" class="packet-box hidden">
           <h4>Packet Received</h4>
           <p id="packetData"></p>
         </div>
       </div>
-<<<<<<< HEAD
-
-      <!-- MAP CARD -->
       <div class="card">
         <div id="map"></div>
       </div>
-
-=======
-      <div class="card">
-        <div id="map"></div>
-      </div>
->>>>>>> 37bfcf0 (Improved)
     </div>
 
     <!-- RIGHT SIDE -->
@@ -127,38 +75,12 @@
           SOS
           <div class="pulse"></div>
         </button>
-<<<<<<< HEAD
-        <button class="secondary-btn" onclick="openRoadModal()"> ⚠ Road Info</button>
-
-
-=======
         <button class="secondary-btn" onclick="openRoadModal()">⚠ Road Info</button>
->>>>>>> 37bfcf0 (Improved)
         <div class="info">
           Press SOS during emergency. Nearby vehicles within 2km will receive instant alert.
         </div>
       </div>
     </div>
-<<<<<<< HEAD
-
-  </div>
-
-  <footer>
-    Smart Vehicle Safety • Real-Time Emergency Communication
-  </footer>
-
-</div>
-
-<script type="module" src="firebase-config.js"></script>
-<script type="module" src="app.js"></script>
-
-<div id="roadModal" class="road-modal hidden">
-  <div class="road-card">
-    <h3>Send Road Information</h3>
-
-    <textarea id="roadText" placeholder="Example: Road blocked, Tree fallen, Heavy traffic..."></textarea>
-
-=======
   </div>
 
   <footer>Smart Vehicle Safety • Real-Time Emergency Communication</footer>
@@ -168,21 +90,14 @@
   <div class="road-card">
     <h3>Send Road Information</h3>
     <textarea id="roadText" placeholder="Example: Road blocked, Tree fallen, Heavy traffic..."></textarea>
->>>>>>> 37bfcf0 (Improved)
     <div class="road-actions">
       <button onclick="closeRoadModal()" class="secondary-btn">Cancel</button>
       <button onclick="sendRoadMessageUI()">Send</button>
     </div>
   </div>
 </div>
-<<<<<<< HEAD
-</body>
-
-
-=======
 
 <script type="module" src="firebase-config.js"></script>
 <script type="module" src="app.js"></script>
 </body>
->>>>>>> 37bfcf0 (Improved)
 </html>
