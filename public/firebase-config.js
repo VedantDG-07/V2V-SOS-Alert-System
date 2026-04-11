@@ -16,7 +16,8 @@ import {
   onSnapshot,
   query,
   serverTimestamp,
-  orderBy 
+  orderBy,
+  where
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 import {
@@ -36,13 +37,13 @@ import {
 
 const env = window.__env || {};
 const firebaseConfig = {
-  apiKey:            env.FIREBASE_API_KEY,
-  authDomain:        env.FIREBASE_AUTH_DOMAIN,
-  projectId:         env.FIREBASE_PROJECT_ID,
-  storageBucket:     env.FIREBASE_STORAGE_BUCKET,
+  apiKey: env.FIREBASE_API_KEY,
+  authDomain: env.FIREBASE_AUTH_DOMAIN,
+  projectId: env.FIREBASE_PROJECT_ID,
+  storageBucket: env.FIREBASE_STORAGE_BUCKET,
   messagingSenderId: env.FIREBASE_MESSAGING_SENDER_ID,
-  appId:             env.FIREBASE_APP_ID,
-  measurementId:     env.FIREBASE_MEASUREMENT_ID
+  appId: env.FIREBASE_APP_ID,
+  measurementId: env.FIREBASE_MEASUREMENT_ID
 };
 
 /* ================= INIT ================= */
@@ -72,7 +73,7 @@ export {
   signOut,
   createUserWithEmailAndPassword,
   EmailAuthProvider,
-  linkWithCredential
+  linkWithCredential,
+  orderBy,
+  where
 };
-
-

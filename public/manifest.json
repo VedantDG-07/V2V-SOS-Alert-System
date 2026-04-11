@@ -1,0 +1,26 @@
+{
+  "name": "V2V Emergency Alert System",
+  "short_name": "V2V SOS",
+  "description": "Real-time vehicle-to-vehicle emergency alert system",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#38bdf8",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icons/app_icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/app_icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["utilities", "navigation"],
+  "screenshots": []
+}
