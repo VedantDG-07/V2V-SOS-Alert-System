@@ -24,6 +24,7 @@ import {
   linkWithCredential
 } from "./firebase-config.js";
 import { deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { DirectionEngine } from "./direction-engine.js";
 
 
 
@@ -215,6 +216,25 @@ function initApp() {
   setVehicleId();
   detectPage();
   updateLocation();
+
+  /* ── Direction Engine: SINGLE source of truth for location ── */
+  DirectionEngine.init({
+    map: null,
+    db,
+    currentUser,
+    onLocationUpdate: (lat, lon, heading, aligned) => {
+      // This is the ONLY place currentLocation is updated (snapped coords)
+      currentLocation = { lat, lon, heading };
+      // Animate the vehicle marker to snapped position + heading
+      updateVehicleMarker(lat, lon, heading);
+    }
+  });
+
+  // updateLocation is called once for initial reverse-geocode text display.
+  // The 20s repeat is kept only for geocode refresh — NOT for location updates.
+  // DirectionEngine runs its own 2.5s GPS cycle internally.
+  locationInterval = setInterval(updateLocation, 30000);
+
   const waitForLocation = setInterval(() => {
     if (currentLocation) {
       clearInterval(waitForLocation);
@@ -222,7 +242,6 @@ function initApp() {
       listenForRoadMessages();
     }
   }, 500);
-  locationInterval = setInterval(updateLocation, 20000);
 }
 
 
@@ -320,20 +339,20 @@ function updateLocation() {
 
       const lat = pos.coords.latitude;
       const lon = pos.coords.longitude;
-      
+
       if (!isValidCoordinate(lat, lon)) {
         console.warn("Invalid coordinates received");
         return;
       }
 
-      currentLocation = { lat, lon };
+      // NOTE: currentLocation is intentionally NOT set here.
+      // DirectionEngine.onLocationUpdate() is the ONLY source of truth
+      // for currentLocation (uses OSRM-snapped coordinates).
 
+      // ── Reverse geocode display only (no location assignment) ──
       const myLocText = document.getElementById("myLocation");
       if (myLocText) {
-        // Show coordinates immediately, then update with area name
         myLocText.textContent = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-
-        // ⏱ Reverse geocode
         Perf.start(M.REVERSE_GEOCODE);
         reverseGeocode(lat, lon).then(name => {
           const rgMs = Perf.end(M.REVERSE_GEOCODE, "Reverse Geocode (Nominatim, ms)");
@@ -342,21 +361,8 @@ function updateLocation() {
         });
       }
 
-      // ⏱ Location write to Firestore
-      Perf.start(M.LOCATION_UPDATE_WRITE);
-      await setDoc(doc(db, "active_users", currentUser.uid), {
-        lat: currentLocation.lat,
-        lon: currentLocation.lon,
-        updatedAt: serverTimestamp()
-      }).then(() => {
-        const locWriteMs = Perf.end(M.LOCATION_UPDATE_WRITE, "Location setDoc Write (ms)");
-        console.log(`[Perf] Location write: ${locWriteMs} ms`);
-      }).catch(err => {
-        Perf.end(M.LOCATION_UPDATE_WRITE, "Location setDoc Write (ms)");
-        console.error("Location update error:", err);
-      });
-
-      updateMyMarker();
+      // ── Firestore write is now handled by DirectionEngine ──
+      // (DirectionEngine writes snapped lat/lon + heading to active_users)
     },
     (error) => {
       Perf.end(M.GPS_ACQUIRE, "GPS Acquire (each call, ms)"); // cleanup pending
@@ -376,39 +382,151 @@ function initMap() {
   }).addTo(map);
   map.whenReady(() => {
     updateLocation();
+    /* ── Give DirectionEngine the live map reference ── */
+    DirectionEngine.setMap(map);
   });
   addMyLocationButton();
 }
 
-function updateMyMarker() {
+/* ================= VEHICLE MARKER (Animated, Rotating) ================= */
 
-  if (!map || !currentLocation) return;
+let _vehicleMarkerPrevPos  = null;  // { lat, lon }
+let _vehicleMarkerPrevHead = 0;     // previous heading (degrees)
+let _animFrame             = null;  // requestAnimationFrame handle
 
+/**
+ * Build the rotating car PNG icon for the current user.
+ * car.png lives at icons/car.png — pointing upward = 0 degrees.
+ * @param {number} heading - 0-360 degrees
+ */
+function buildVehicleIcon(heading) {
+  const html = `
+    <div style="
+      width: 50px;
+      height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transform: rotate(${heading}deg);
+      transition: transform 0.8s ease-out;
+      will-change: transform;
+    ">
+      <img src="icons/car.png"
+           width="46" height="46"
+           style="display:block; object-fit:contain;"
+           draggable="false"/>
+    </div>`;
+
+  return L.divIcon({
+    html:        html,
+    className:   "",
+    iconSize:    [50, 50],
+    iconAnchor:  [25, 25],
+    popupAnchor: [0, -28],
+  });
+}
+
+/**
+ * Interpolate between two headings correctly (handles 359°→1° wrap).
+ */
+function lerpHeading(from, to, t) {
+  let diff = ((to - from + 540) % 360) - 180;  // -180 to +180
+  return (from + diff * t + 360) % 360;
+}
+
+/**
+ * Main vehicle marker function — called by DirectionEngine callback.
+ * Creates marker on first call, then animates position + rotation.
+ *
+ * @param {number} lat
+ * @param {number} lon
+ * @param {number} heading  0-360 degrees
+ */
+function updateVehicleMarker(lat, lon, heading) {
+  if (!map) return;
+
+  // ── First creation ──────────────────────────────────────────────────
   if (!myMarker) {
-    myMarker = L.marker([currentLocation.lat, currentLocation.lon])
+    myMarker = L.marker([lat, lon], { icon: buildVehicleIcon(heading), zIndexOffset: 1000 })
       .addTo(map)
-      .bindPopup("My Vehicle");
-  } else {
-    myMarker.setLatLng([currentLocation.lat, currentLocation.lon]);
+      .bindPopup("🚗 My Vehicle");
+
+    // First time: also centre map
+    map.setView([lat, lon], map.getZoom() < 15 ? 16 : map.getZoom());
+
+    _vehicleMarkerPrevPos  = { lat, lon };
+    _vehicleMarkerPrevHead = heading;
+
+    // Radius circle
+    if (!userRadiusCircle) {
+      userRadiusCircle = L.circle([lat, lon], {
+        color:       "#0060fb",
+        fillColor:   "#1865e0",
+        fillOpacity: 0.08,
+        weight:      2,
+        radius:      RADIUS_KM * 1000
+      }).addTo(map);
+    }
+    return;
   }
 
-  // 🔵 USER RADIUS CIRCLE (always around user)
-  if (!userRadiusCircle) {
-    userRadiusCircle = L.circle(
-      [currentLocation.lat, currentLocation.lon],
-      {
-        color: "#0060fb",
-        fillColor: "#1865e0",
-        fillOpacity: 0.1,
-        weight: 2,
-        radius: RADIUS_KM * 1000
-      }
-    ).addTo(map);
-  } else {
-    userRadiusCircle.setLatLng([
+  // ── Skip animation if jump is too large (>200m) — just teleport ────
+  const prevLat = _vehicleMarkerPrevPos?.lat ?? lat;
+  const prevLon = _vehicleMarkerPrevPos?.lon ?? lon;
+  const dLat = lat - prevLat;
+  const dLon = lon - prevLon;
+  const distSq = (dLat * dLat + dLon * dLon) * 111320 * 111320;
+  if (distSq > 200 * 200) {
+    myMarker.setLatLng([lat, lon]);
+    myMarker.setIcon(buildVehicleIcon(heading));
+    userRadiusCircle?.setLatLng([lat, lon]);
+    _vehicleMarkerPrevPos  = { lat, lon };
+    _vehicleMarkerPrevHead = heading;
+    return;
+  }
+
+  // ── Smooth animation over ~900ms ────────────────────────────────────
+  if (_animFrame) cancelAnimationFrame(_animFrame);
+
+  const startLat  = prevLat;
+  const startLon  = prevLon;
+  const startHead = _vehicleMarkerPrevHead;
+  const duration  = 900;
+  const startTime = performance.now();
+
+  function step(now) {
+    const t = Math.min((now - startTime) / duration, 1);
+    // Ease-out cubic
+    const ease = 1 - Math.pow(1 - t, 3);
+
+    const curLat  = startLat  + (lat  - startLat)  * ease;
+    const curLon  = startLon  + (lon  - startLon)  * ease;
+    const curHead = lerpHeading(startHead, heading, ease);
+
+    myMarker.setLatLng([curLat, curLon]);
+    myMarker.setIcon(buildVehicleIcon(curHead));
+    userRadiusCircle?.setLatLng([curLat, curLon]);
+
+    if (t < 1) {
+      _animFrame = requestAnimationFrame(step);
+    } else {
+      _vehicleMarkerPrevPos  = { lat, lon };
+      _vehicleMarkerPrevHead = heading;
+      _animFrame = null;
+    }
+  }
+
+  _animFrame = requestAnimationFrame(step);
+}
+
+// Keep old name working (called from map.whenReady fallback)
+function updateMyMarker() {
+  if (currentLocation) {
+    updateVehicleMarker(
       currentLocation.lat,
-      currentLocation.lon
-    ]);
+      currentLocation.lon,
+      currentLocation.heading ?? 0
+    );
   }
 }
 
@@ -665,12 +783,20 @@ function listenForAccidents() {
       }
 
       // 🔹 DASHBOARD → show marker always,
-      // but ALERT only inside radius
+      // but ALERT only inside radius + direction filter
       if (page === "dashboard") {
         showEmergencyMarker(data.lat, data.lon, eventId);
 
         if (distance <= RADIUS_KM) {
-          if (!acknowledgedEvents.has(eventId)) {
+          /* ── Direction-aware filtering ──
+             Only alert if other vehicle is heading toward us
+             (heading diff < 45° = same dir, or > 135° = oncoming).
+             If they have no heading data, still alert (safe default). */
+          const myHeading    = DirectionEngine.getHeading();
+          const theirHeading = data.heading ?? null;
+          const { relevant } = DirectionEngine.classify(myHeading, theirHeading);
+
+          if (relevant && !acknowledgedEvents.has(eventId)) {
             showEmergency(data, eventId);
             addToHistory(data, distance);
             saveAlertToHistory(data, distance, eventId);
@@ -1747,6 +1873,8 @@ function cleanupListeners() {
     clearInterval(locationInterval);
     locationInterval = null;
   }
+  /* ── Stop direction engine tracking loop ── */
+  DirectionEngine.stop();
 }
 function initLogin() {
   const loginBtn = document.getElementById("loginBtn");

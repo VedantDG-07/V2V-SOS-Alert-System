@@ -56,6 +56,126 @@ let unsubscribers = [];
 let locationInterval = null;
 
 
+/* ================= PERFORMANCE MEASUREMENT MODULE ================= */
+
+const Perf = (() => {
+  // Internal store: { [metricKey]: { samples: number[], timestamps: number[] } }
+  const store = {};
+  // Pending timing handles: { [key]: startMs }
+  const pending = {};
+
+  /** Start a named timer. Call end(key) to finalize. */
+  function start(key) {
+    pending[key] = performance.now();
+  }
+
+  /**
+   * End a named timer and record the elapsed ms.
+   * @param {string} key   - same key used in start()
+   * @param {string} label - human label for the metric
+   * @returns {number} elapsed ms, or -1 if start() was never called
+   */
+  function end(key, label) {
+    if (!(key in pending)) return -1;
+    const elapsed = performance.now() - pending[key];
+    delete pending[key];
+    record(key, label, elapsed);
+    return elapsed;
+  }
+
+  /**
+   * Directly record a value (ms) for a metric — useful when you have
+   * two timestamps already (e.g. clientTime vs. snapshot receive time).
+   */
+  function record(key, label, valueMs) {
+    if (!store[key]) store[key] = { label, samples: [], timestamps: [] };
+    store[key].label = label;
+    store[key].samples.push(valueMs);
+    store[key].timestamps.push(Date.now());
+  }
+
+  /** Return stats for a sample array */
+  function stats(samples) {
+    if (!samples.length) return null;
+    const sorted = [...samples].sort((a, b) => a - b);
+    const sum = sorted.reduce((s, v) => s + v, 0);
+    return {
+      count:  sorted.length,
+      min:    +sorted[0].toFixed(0),
+      max:    +sorted[sorted.length - 1].toFixed(0),
+      avg:    +(sum / sorted.length).toFixed(0),
+      median: +sorted[Math.floor(sorted.length / 2)].toFixed(0),
+      latest: +sorted[sorted.length - 1].toFixed(0)   // last recorded raw value (unsorted)
+    };
+  }
+
+  /**
+   * Print a formatted table of ALL collected metrics to the console.
+   * Call this any time to see a snapshot, or it auto-prints on every SOS.
+   */
+  function printReport() {
+    const divider = "─".repeat(72);
+    console.log("\n%c📊  V2V SOS — Performance Report", "font-size:14px;font-weight:bold;color:#00b4d8");
+    console.log(divider);
+    console.log(
+      "%c%-36s %6s %6s %6s %6s %6s",
+      "font-weight:bold",
+      "Metric", "Samples", "Min ms", "Avg ms", "Med ms", "Max ms"
+    );
+    console.log(divider);
+
+    let hasData = false;
+    for (const [, meta] of Object.entries(store)) {
+      const s = stats(meta.samples);
+      if (!s) continue;
+      hasData = true;
+      console.log(
+        "%-36s %6d %6d %6d %6d %6d",
+        meta.label.slice(0, 36),
+        s.count, s.min, s.avg, s.median, s.max
+      );
+    }
+
+    if (!hasData) {
+      console.log("  (no data yet — trigger an SOS to populate metrics)");
+    }
+    console.log(divider);
+    console.log("💡 Tip: call Perf.printReport() any time from the console.\n");
+  }
+
+  /** Expose raw store for custom analysis */
+  function raw() {
+    return JSON.parse(JSON.stringify(store));
+  }
+
+  return { start, end, record, printReport, raw };
+})();
+
+// Make globally accessible from browser console
+window.Perf = Perf;
+
+/* ── Metric Keys (constants so typos are caught) ── */
+const M = {
+  GPS_FIRST_FIX:        "gps_first_fix",         // ms from page load → first valid GPS fix
+  GPS_ACQUIRE:          "gps_acquire",            // ms each subsequent getCurrentPosition call takes
+  SOS_BTN_TO_WRITE:     "sos_btn_to_firestore",   // ms from button press → addDoc resolves (sender side)
+  FIRESTORE_WRITE:      "firestore_write_only",   // ms just for the addDoc call
+  ALERT_DELIVERY:       "alert_delivery",         // ms from clientTime in doc → onSnapshot fires on receiver
+  ALERT_E2E:            "alert_e2e",              // ms from SOS button press → receiver snapshot (same device demo)
+  LOCATION_UPDATE_WRITE:"location_update_write",  // ms for setDoc in updateLocation
+  LISTENER_STARTUP:     "listener_startup",       // ms from initApp → first snapshot callback
+  REVERSE_GEOCODE:      "reverse_geocode",        // ms for Nominatim round-trip
+  ACK_TO_FIRESTORE:     "ack_to_firestore",       // ms for acknowledge doc write
+};
+
+// Track page-load time so we can measure GPS first fix
+const _pageLoadTime = performance.now();
+let _gpsFirstFixDone = false;
+// Shared SOS send timestamp so receiver-side can compute e2e on same device testing
+let _lastSOSSentAt = null;
+/* ── END PERFORMANCE MEASUREMENT MODULE ── */
+
+
 /* ================= AUTH HANDLING ================= */
 
 onAuthStateChanged(auth, async (user) => {
@@ -181,8 +301,23 @@ async function reverseGeocode(lat, lon) {
 function updateLocation() {
   if (!navigator.geolocation || !currentUser) return;
 
+  // ⏱ GPS acquire start
+  Perf.start(M.GPS_ACQUIRE);
+
   navigator.geolocation.getCurrentPosition(
     async (pos) => {
+      // ⏱ GPS acquire end
+      const gpsMs = Perf.end(M.GPS_ACQUIRE, "GPS Acquire (each call, ms)");
+      console.log(`[Perf] GPS acquired in ${gpsMs} ms`);
+
+      // ⏱ GPS first fix from page load (once)
+      if (!_gpsFirstFixDone) {
+        _gpsFirstFixDone = true;
+        const firstFixMs = performance.now() - _pageLoadTime;
+        Perf.record(M.GPS_FIRST_FIX, "GPS First Fix from Page Load (ms)", firstFixMs);
+        console.log(`[Perf] GPS FIRST FIX from page load: ${firstFixMs.toFixed(0)} ms`);
+      }
+
       const lat = pos.coords.latitude;
       const lon = pos.coords.longitude;
       
@@ -197,20 +332,34 @@ function updateLocation() {
       if (myLocText) {
         // Show coordinates immediately, then update with area name
         myLocText.textContent = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+
+        // ⏱ Reverse geocode
+        Perf.start(M.REVERSE_GEOCODE);
         reverseGeocode(lat, lon).then(name => {
+          const rgMs = Perf.end(M.REVERSE_GEOCODE, "Reverse Geocode (Nominatim, ms)");
+          console.log(`[Perf] Reverse geocode: ${rgMs} ms`);
           if (name && myLocText) myLocText.textContent = name;
         });
       }
 
+      // ⏱ Location write to Firestore
+      Perf.start(M.LOCATION_UPDATE_WRITE);
       await setDoc(doc(db, "active_users", currentUser.uid), {
         lat: currentLocation.lat,
         lon: currentLocation.lon,
         updatedAt: serverTimestamp()
-      }).catch(err => console.error("Location update error:", err));
+      }).then(() => {
+        const locWriteMs = Perf.end(M.LOCATION_UPDATE_WRITE, "Location setDoc Write (ms)");
+        console.log(`[Perf] Location write: ${locWriteMs} ms`);
+      }).catch(err => {
+        Perf.end(M.LOCATION_UPDATE_WRITE, "Location setDoc Write (ms)");
+        console.error("Location update error:", err);
+      });
 
       updateMyMarker();
     },
     (error) => {
+      Perf.end(M.GPS_ACQUIRE, "GPS Acquire (each call, ms)"); // cleanup pending
       console.warn("Geolocation error:", error.message);
     },
     { timeout: 10000, maximumAge: 0, enableHighAccuracy: false }
@@ -362,6 +511,14 @@ window.triggerSOS = async function () {
     lastSOS = Date.now();
     if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 500]);
 
+    // ⏱ Record button-press → Firestore write start
+    const _sosButtonPressTime = Date.now();
+    _lastSOSSentAt = _sosButtonPressTime;
+    Perf.start(M.SOS_BTN_TO_WRITE);
+    Perf.start(M.FIRESTORE_WRITE);
+
+    const _sosSendClientTime = Date.now();
+
     let eventRef;
     try {
       eventRef = await addDoc(collection(db, "accident_events"), {
@@ -369,15 +526,26 @@ window.triggerSOS = async function () {
         lon: currentLocation.lon,
         senderId: currentUser.uid,
         createdAt: serverTimestamp(),
-        clientTime: Date.now()
+        clientTime: _sosSendClientTime        // receiver uses this for delivery latency
       });
+
+      // ⏱ addDoc resolved — Firestore write done
+      const writeMs = Perf.end(M.FIRESTORE_WRITE, "Firestore addDoc Write (ms)");
+      const e2eSendMs = Perf.end(M.SOS_BTN_TO_WRITE, "SOS Btn → Firestore Write (ms)");
+      console.log(`[Perf] SOS Firestore write: ${writeMs} ms`);
+      console.log(`[Perf] SOS btn→write total: ${e2eSendMs} ms`);
+
     } catch(err) {
+      Perf.end(M.FIRESTORE_WRITE, "Firestore addDoc Write (ms)");
+      Perf.end(M.SOS_BTN_TO_WRITE, "SOS Btn → Firestore Write (ms)");
       console.error("SOS send error:", err);
       showFlash("Failed to send SOS. Check connection.", "error");
       return;
     }
 
     showFlash("🚨 SOS Sent Successfully", "success");
+    // Auto-print report after every SOS so it's visible in console immediately
+    setTimeout(() => Perf.printReport(), 500);
 
     // Send SMS to emergency contacts + log ER notification
     sendSOSNotifications(currentLocation.lat, currentLocation.lon, eventRef.id).catch(console.error);
@@ -421,7 +589,19 @@ function listenForAccidents() {
 
   const q = query(collection(db, "accident_events"));
 
+  // ⏱ Track when listener was registered
+  const _listenerRegisteredAt = performance.now();
+  let _listenerFirstFireDone = false;
+
   const unsubscribe = onSnapshot(q, (snapshot) => {
+
+    // ⏱ Listener startup time (first snapshot callback)
+    if (!_listenerFirstFireDone) {
+      _listenerFirstFireDone = true;
+      const startupMs = performance.now() - _listenerRegisteredAt;
+      Perf.record(M.LISTENER_STARTUP, "onSnapshot Listener Startup (ms)", startupMs);
+      console.log(`[Perf] Firestore listener first callback: ${startupMs.toFixed(0)} ms`);
+    }
 
     const page = getCurrentPage();
     const now = Date.now();
@@ -436,6 +616,21 @@ function listenForAccidents() {
       // if (!created || created < listenerStartTime) return; 
       const createdTime = data.clientTime || created;
       if (!createdTime) return;
+
+      // ⏱ Alert delivery latency: clientTime (sender's clock) → now (receiver's clock)
+      // Only measure recent alerts (< 30s old) to avoid stale data skewing results
+      const ageMs = now - createdTime;
+      if (ageMs < 30000 && ageMs > 0) {
+        Perf.record(M.ALERT_DELIVERY, "Alert Delivery Latency (clientTime→receive, ms)", ageMs);
+        console.log(`[Perf] Alert delivery latency: ${ageMs} ms (doc: ${eventId.slice(0,8)})`);
+
+        // ⏱ E2E on same-device testing: SOS button press → receiver snapshot
+        if (_lastSOSSentAt && (now - _lastSOSSentAt) < 30000) {
+          const e2eMs = now - _lastSOSSentAt;
+          Perf.record(M.ALERT_E2E, "Full E2E (SOS btn → receiver snapshot, ms)", e2eMs);
+          console.log(`[Perf] Full E2E (same-device): ${e2eMs} ms`);
+        }
+      }
 
       // 🔴 10 min expiry
       if (now - createdTime > 10 * 60 * 1000) {
