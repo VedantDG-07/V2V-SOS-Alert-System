@@ -214,27 +214,27 @@ if (savedAcks) {
 
 function initApp() {
   setVehicleId();
-  detectPage();
-  updateLocation();
+  updateLocation(); // reverse-geocode display only
 
-  /* ── Direction Engine: SINGLE source of truth for location ── */
+  /* ── Step 1: Boot DirectionEngine FIRST — it is the only location source ── */
   DirectionEngine.init({
     map: null,
     db,
     currentUser,
     onLocationUpdate: (lat, lon, heading, aligned) => {
-      // This is the ONLY place currentLocation is updated (snapped coords)
       currentLocation = { lat, lon, heading };
-      // Animate the vehicle marker to snapped position + heading
+      console.log("[V2V] LIVE UPDATE:", lat.toFixed(6), lon.toFixed(6), "hdg:", Math.round(heading));
       updateVehicleMarker(lat, lon, heading);
     }
   });
 
-  // updateLocation is called once for initial reverse-geocode text display.
-  // The 20s repeat is kept only for geocode refresh — NOT for location updates.
-  // DirectionEngine runs its own 2.5s GPS cycle internally.
+  /* ── Step 2: Now boot pages — they poll currentLocation which DE will fill ── */
+  detectPage();
+
+  // Geocode refresh every 30s (display only)
   locationInterval = setInterval(updateLocation, 30000);
 
+  // Start Firestore listeners once first location fix arrives
   const waitForLocation = setInterval(() => {
     if (currentLocation) {
       clearInterval(waitForLocation);
@@ -378,47 +378,46 @@ function initMap() {
   map = L.map("map").setView([19.0760, 72.8777], 13);
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19
+    maxZoom: 19,
+    attribution: "© OpenStreetMap contributors"
   }).addTo(map);
+
+  // Pass map to DirectionEngine right now — do not wait for whenReady.
+  // This unblocks updateVehicleMarker which checks `if (!map) return`.
+  DirectionEngine.setMap(map);
+
   map.whenReady(() => {
-    updateLocation();
-    /* ── Give DirectionEngine the live map reference ── */
-    DirectionEngine.setMap(map);
+    updateLocation(); // geocode display on map ready
+
+    // Flush any queued marker update that arrived before map was ready
+    if (_pendingMarkerUpdate) {
+      const { lat, lon, heading } = _pendingMarkerUpdate;
+      _pendingMarkerUpdate = null;
+      updateVehicleMarker(lat, lon, heading);
+    }
   });
+
   addMyLocationButton();
 }
 
-/* ================= VEHICLE MARKER (Animated, Rotating) ================= */
+/* ================= VEHICLE MARKER (Animated, Rotating, Real-time) ================= */
 
-let _vehicleMarkerPrevPos  = null;  // { lat, lon }
-let _vehicleMarkerPrevHead = 0;     // previous heading (degrees)
-let _animFrame             = null;  // requestAnimationFrame handle
+// Marker state
+let _vehicleMarkerPrevPos  = null;   // { lat, lon } — last rendered position
+let _vehicleMarkerPrevHead = 0;      // last rendered heading
+let _animFrame             = null;   // active requestAnimationFrame id
+let _pendingMarkerUpdate   = null;   // { lat, lon, heading } queued before map ready
 
 /**
- * Build the rotating car PNG icon for the current user.
- * car.png lives at icons/car.png — pointing upward = 0 degrees.
- * @param {number} heading - 0-360 degrees
+ * Build the rotating car icon using car.png.
+ * We use a single persistent DOM element per marker lifecycle, rotating via CSS.
+ * The wrapper div holds the transform so Leaflet doesn't recreate the element.
  */
 function buildVehicleIcon(heading) {
-  const html = `
-    <div style="
-      width: 50px;
-      height: 50px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transform: rotate(${heading}deg);
-      transition: transform 0.8s ease-out;
-      will-change: transform;
-    ">
-      <img src="icons/car.png"
-           width="46" height="46"
-           style="display:block; object-fit:contain;"
-           draggable="false"/>
-    </div>`;
-
   return L.divIcon({
-    html:        html,
+    html: `<div class="v2v-car-icon" style="transform:rotate(${heading}deg)">
+             <img src="icons/car.png" width="46" height="46" draggable="false"/>
+           </div>`,
     className:   "",
     iconSize:    [50, 50],
     iconAnchor:  [25, 25],
@@ -427,91 +426,135 @@ function buildVehicleIcon(heading) {
 }
 
 /**
- * Interpolate between two headings correctly (handles 359°→1° wrap).
+ * Mutate the existing marker icon's rotation in-place without calling setIcon()
+ * (avoids Leaflet re-creating the DOM element which causes a flicker).
+ * Falls back to setIcon if the DOM element isn't found.
+ */
+function rotateMarkerInPlace(marker, heading) {
+  const el = marker?.getElement()?.querySelector(".v2v-car-icon");
+  if (el) {
+    el.style.transform = `rotate(${heading}deg)`;
+  } else if (marker) {
+    marker.setIcon(buildVehicleIcon(heading));
+  }
+}
+
+/**
+ * Shortest-path heading interpolation — handles 359°→1° wrap correctly.
  */
 function lerpHeading(from, to, t) {
-  let diff = ((to - from + 540) % 360) - 180;  // -180 to +180
+  const diff = ((to - from + 540) % 360) - 180;
   return (from + diff * t + 360) % 360;
 }
 
 /**
- * Main vehicle marker function — called by DirectionEngine callback.
- * Creates marker on first call, then animates position + rotation.
+ * updateVehicleMarker — the ONLY function that moves/rotates the vehicle marker.
+ * Called on every DirectionEngine animation frame via onLocationUpdate callback.
  *
- * @param {number} lat
- * @param {number} lon
- * @param {number} heading  0-360 degrees
+ * Handles:
+ *  - Map not ready yet → queue the update
+ *  - First call → create marker and centre map
+ *  - Large gap (>150m) → teleport (GPS reconnect)
+ *  - Normal movement → smooth RAF animation over 900ms, ease-out cubic
+ *  - Heading → interpolates via lerpHeading, applied in-place (no flicker)
+ *
+ * @param {number} lat     OSRM-snapped latitude
+ * @param {number} lon     OSRM-snapped longitude
+ * @param {number} heading smoothed heading 0–360°
  */
 function updateVehicleMarker(lat, lon, heading) {
-  if (!map) return;
+  // ── Guard: map not ready yet — queue and return ──────────────────────
+  if (!map || !map.getContainer()) {
+    _pendingMarkerUpdate = { lat, lon, heading };
+    return;
+  }
 
-  // ── First creation ──────────────────────────────────────────────────
+  // ── First call: create marker ─────────────────────────────────────────
   if (!myMarker) {
-    myMarker = L.marker([lat, lon], { icon: buildVehicleIcon(heading), zIndexOffset: 1000 })
-      .addTo(map)
-      .bindPopup("🚗 My Vehicle");
+    myMarker = L.marker([lat, lon], {
+      icon:          buildVehicleIcon(heading),
+      zIndexOffset:  1000,
+    }).addTo(map).bindPopup("🚗 My Vehicle");
 
-    // First time: also centre map
-    map.setView([lat, lon], map.getZoom() < 15 ? 16 : map.getZoom());
+    // Centre map on first fix
+    map.setView([lat, lon], Math.max(map.getZoom(), 16));
 
     _vehicleMarkerPrevPos  = { lat, lon };
     _vehicleMarkerPrevHead = heading;
 
-    // Radius circle
+    // Create radius circle
     if (!userRadiusCircle) {
       userRadiusCircle = L.circle([lat, lon], {
         color:       "#0060fb",
         fillColor:   "#1865e0",
         fillOpacity: 0.08,
         weight:      2,
-        radius:      RADIUS_KM * 1000
+        radius:      RADIUS_KM * 1000,
       }).addTo(map);
     }
     return;
   }
 
-  // ── Skip animation if jump is too large (>200m) — just teleport ────
+  // ── Teleport if gap is too large (GPS reconnect / massive jump) ───────
   const prevLat = _vehicleMarkerPrevPos?.lat ?? lat;
   const prevLon = _vehicleMarkerPrevPos?.lon ?? lon;
-  const dLat = lat - prevLat;
-  const dLon = lon - prevLon;
-  const distSq = (dLat * dLat + dLon * dLon) * 111320 * 111320;
-  if (distSq > 200 * 200) {
+  const dLat    = lat - prevLat;
+  const dLon    = lon - prevLon;
+  const distM   = Math.sqrt(dLat * dLat + dLon * dLon) * 111320;
+
+  if (distM > 150) {
+    if (_animFrame) { cancelAnimationFrame(_animFrame); _animFrame = null; }
     myMarker.setLatLng([lat, lon]);
-    myMarker.setIcon(buildVehicleIcon(heading));
+    rotateMarkerInPlace(myMarker, heading);
     userRadiusCircle?.setLatLng([lat, lon]);
     _vehicleMarkerPrevPos  = { lat, lon };
     _vehicleMarkerPrevHead = heading;
     return;
   }
 
-  // ── Smooth animation over ~900ms ────────────────────────────────────
-  if (_animFrame) cancelAnimationFrame(_animFrame);
+  // ── Smooth animation (900ms, ease-out cubic) ─────────────────────────
+  // If an animation is already running, cancel it and start fresh from
+  // the CURRENT visual position (not the stale prevPos) — prevents jumps.
+  if (_animFrame) {
+    cancelAnimationFrame(_animFrame);
+    _animFrame = null;
+    // Sync prevPos to where the marker actually is right now
+    const currentLatLng = myMarker.getLatLng();
+    _vehicleMarkerPrevPos  = { lat: currentLatLng.lat, lon: currentLatLng.lng };
+    _vehicleMarkerPrevHead = _vehicleMarkerPrevHead; // keep current rendered heading
+  }
 
-  const startLat  = prevLat;
-  const startLon  = prevLon;
+  const startLat  = _vehicleMarkerPrevPos.lat;
+  const startLon  = _vehicleMarkerPrevPos.lon;
   const startHead = _vehicleMarkerPrevHead;
   const duration  = 900;
   const startTime = performance.now();
 
+  // Capture targets in closure (new GPS may arrive before this animation ends)
+  const targetLat  = lat;
+  const targetLon  = lon;
+  const targetHead = heading;
+
   function step(now) {
-    const t = Math.min((now - startTime) / duration, 1);
-    // Ease-out cubic
-    const ease = 1 - Math.pow(1 - t, 3);
+    const rawT = Math.min((now - startTime) / duration, 1);
+    const ease = 1 - Math.pow(1 - rawT, 3); // ease-out cubic
 
-    const curLat  = startLat  + (lat  - startLat)  * ease;
-    const curLon  = startLon  + (lon  - startLon)  * ease;
-    const curHead = lerpHeading(startHead, heading, ease);
+    const curLat  = startLat  + (targetLat  - startLat)  * ease;
+    const curLon  = startLon  + (targetLon  - startLon)  * ease;
+    const curHead = lerpHeading(startHead, targetHead, rawT);
 
+    // Move position
     myMarker.setLatLng([curLat, curLon]);
-    myMarker.setIcon(buildVehicleIcon(curHead));
+    // Rotate in-place (no DOM recreation, no flicker)
+    rotateMarkerInPlace(myMarker, curHead);
+    // Keep radius circle centred
     userRadiusCircle?.setLatLng([curLat, curLon]);
 
-    if (t < 1) {
+    if (rawT < 1) {
       _animFrame = requestAnimationFrame(step);
     } else {
-      _vehicleMarkerPrevPos  = { lat, lon };
-      _vehicleMarkerPrevHead = heading;
+      _vehicleMarkerPrevPos  = { lat: targetLat, lon: targetLon };
+      _vehicleMarkerPrevHead = targetHead;
       _animFrame = null;
     }
   }
@@ -519,14 +562,10 @@ function updateVehicleMarker(lat, lon, heading) {
   _animFrame = requestAnimationFrame(step);
 }
 
-// Keep old name working (called from map.whenReady fallback)
+// Compatibility shim — updateMyMarker() may be called elsewhere
 function updateMyMarker() {
   if (currentLocation) {
-    updateVehicleMarker(
-      currentLocation.lat,
-      currentLocation.lon,
-      currentLocation.heading ?? 0
-    );
+    updateVehicleMarker(currentLocation.lat, currentLocation.lon, currentLocation.heading ?? 0);
   }
 }
 
@@ -1137,43 +1176,43 @@ function loadHistory() {
 
 
 async function initServices() {
-  // Wait for location
-  let waited = 0;
-  while (!currentLocation && waited < 8000) {
-    await new Promise(r => setTimeout(r, 300));
-    waited += 300;
-  }
-
-  /* ── Nearby Hospitals via Overpass API ── */
-  const hospitalList    = document.getElementById("hospitalList");
-  const hospitalLoading = document.getElementById("hospitalLoading");
+  const hospitalList     = document.getElementById("hospitalList");
+  const hospitalLoading  = document.getElementById("hospitalLoading");
   const hospitalSubtitle = document.getElementById("hospitalSubtitle");
 
+  /* ── renderHospitals: build list + map markers ── */
   const renderHospitals = (elements, lat, lon) => {
-    const withDist = elements.map(el => ({
-      ...el, dist: calculateDistance(lat, lon, el.lat, el.lon)
-    })).sort((a, b) => a.dist - b.dist).slice(0, 6);
+    const withDist = elements
+      .filter(el => el.lat && el.lon)
+      .map(el => ({ ...el, dist: calculateDistance(lat, lon, el.lat, el.lon) }))
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, 8);
 
     if (hospitalLoading) hospitalLoading.style.display = "none";
-    if (hospitalList) hospitalList.style.display = "flex";
+    if (hospitalList)    hospitalList.style.display    = "flex";
 
     if (withDist.length === 0) {
-      if (hospitalList) hospitalList.innerHTML = `<li style="color:#64748b;font-size:13px;">No hospitals found within 5 km</li>`;
+      if (hospitalList)    hospitalList.innerHTML       = `<li style="color:#64748b;font-size:13px;">No hospitals found within 5 km</li>`;
       if (hospitalSubtitle) hospitalSubtitle.textContent = "None found nearby";
       return;
     }
 
     if (hospitalSubtitle) hospitalSubtitle.textContent = `${withDist.length} found within 5 km`;
-    if (hospitalList) hospitalList.innerHTML = "";
+    if (hospitalList)     hospitalList.innerHTML        = "";
+
+    // Clear old hospital map markers
+    hospitalMarkers.forEach(m => map && map.removeLayer(m));
+    hospitalMarkers = [];
 
     withDist.forEach(h => {
-      const name = h.tags?.name || h.tags?.["name:en"] || "Hospital";
-      const phone = h.tags?.phone || h.tags?.["contact:phone"] || null;
-      const distStr = h.dist < 1 ? `${Math.round(h.dist * 1000)} m` : `${h.dist.toFixed(1)} km`;
-      const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lon}`;
+      const name     = h.tags?.name || h.tags?.["name:en"] || "Hospital / Clinic";
+      const phone    = h.tags?.phone || h.tags?.["contact:phone"] || null;
+      const distStr  = h.dist < 1 ? `${Math.round(h.dist * 1000)} m` : `${h.dist.toFixed(1)} km`;
+      const mapsUrl  = `https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lon}`;
+
       const li = document.createElement("li");
-      li.className = "hospital-item";
-      li.innerHTML = `
+      li.className   = "hospital-item";
+      li.innerHTML   = `
         <div class="hospital-info">
           <div class="hospital-name" title="${name}">${name}</div>
           <div class="hospital-dist">📍 ${distStr} away</div>
@@ -1181,54 +1220,120 @@ async function initServices() {
         <div class="hospital-actions">
           ${phone ? `<a href="tel:${phone}" class="hospital-call-btn">📞 Call</a>` : ""}
           <a href="${mapsUrl}" target="_blank" class="hospital-nav-btn">🗺 Go</a>
-        </div>
-      `;
+        </div>`;
       if (hospitalList) hospitalList.appendChild(li);
+
+      // Map marker
       if (map && isValidCoordinate(h.lat, h.lon)) {
-        const icon = L.divIcon({ html: "🏥", className: "", iconSize: [28,28], iconAnchor: [14,14] });
-        L.marker([h.lat, h.lon], { icon }).addTo(map).bindPopup(`<strong>${name}</strong><br>${distStr} away`);
+        const icon = L.divIcon({ html: "🏥", className: "", iconSize: [28, 28], iconAnchor: [14, 14] });
+        const m    = L.marker([h.lat, h.lon], { icon })
+          .addTo(map)
+          .bindPopup(`<strong>${name}</strong><br>${distStr} away`);
+        hospitalMarkers.push(m);
       }
     });
   };
 
-  if (currentLocation && hospitalList) {
-    const { lat, lon } = currentLocation;
+  /* ── fetchAndRenderHospitals: called once location is known ── */
+  const fetchAndRenderHospitals = async (lat, lon) => {
     const CACHE_KEY = "hospitalCache";
     const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
-    // Try cache first — show instantly
+    // Try cache first (same location within ~1 km)
     try {
       const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
-      if (cached && Date.now() - cached.ts < CACHE_TTL) {
-        // Check cache is for roughly same location (within ~1km)
+      if (cached && (Date.now() - cached.ts) < CACHE_TTL) {
         const locDiff = calculateDistance(lat, lon, cached.lat, cached.lon);
         if (locDiff < 1) {
           if (hospitalSubtitle) hospitalSubtitle.textContent = "Loaded from cache";
           renderHospitals(cached.elements, lat, lon);
-          return; // skip fetch entirely
+          return;
         }
       }
-    } catch(e) {}
+    } catch (e) {}
 
-    // Fetch fresh
+    // Fetch fresh from Overpass
     try {
-      const radius = 5000;
-      const query_str = `[out:json][timeout:15];(node["amenity"="hospital"](around:${radius},${lat},${lon});node["amenity"="clinic"](around:${radius},${lat},${lon}););out body;`;
-      const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query_str)}`);
-      const data = await res.json();
-      const elements = data.elements || [];
+      const radius    = 5000;
+      const query_str = `[out:json][timeout:25];(
+        node["amenity"="hospital"](around:${radius},${lat},${lon});
+        node["amenity"="clinic"](around:${radius},${lat},${lon});
+        way["amenity"="hospital"](around:${radius},${lat},${lon});
+        way["amenity"="clinic"](around:${radius},${lat},${lon});
+      );out center body;`;
 
-      // Save to cache
-      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), lat, lon, elements })); } catch(e) {}
+      const res      = await fetch(
+        `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query_str)}`,
+        { signal: AbortSignal.timeout(20000) }
+      );
+      const json     = await res.json();
 
+      // Normalise: ways come back with `center` instead of lat/lon
+      const elements = (json.elements || []).map(el => ({
+        ...el,
+        lat: el.lat ?? el.center?.lat,
+        lon: el.lon ?? el.center?.lon,
+      })).filter(el => el.lat && el.lon);
+
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), lat, lon, elements })); } catch (e) {}
       renderHospitals(elements, lat, lon);
-    } catch(e) {
+
+    } catch (e) {
+      console.warn("[Services] Overpass error:", e.message);
       if (hospitalLoading) hospitalLoading.style.display = "none";
-      if (hospitalList) { hospitalList.style.display = "flex"; hospitalList.innerHTML = `<li style="color:#64748b;font-size:13px;">Could not load hospitals. Check connection.</li>`; }
+      if (hospitalList) {
+        hospitalList.style.display = "flex";
+        hospitalList.innerHTML     = `<li style="color:#64748b;font-size:13px;">Could not load hospitals. Check connection.</li>`;
+      }
     }
+  };
+
+  /* ── Wait for location ─────────────────────────────────────────────────
+     DE needs GPS + OSRM round-trip before setting currentLocation.
+     Fallback: if DE hasn't delivered after 4s, seed currentLocation from
+     raw GPS so hospitals load immediately without waiting for OSRM.
+  ─────────────────────────────────────────────────────────────────────── */
+  if (hospitalLoading) {
+    hospitalLoading.style.display = "block";
+    hospitalLoading.textContent   = "Detecting location…";
+  }
+
+  // Seed from raw GPS after 4s if DE hasn't fired yet
+  const rawGPSSeed = new Promise(resolve => {
+    setTimeout(() => {
+      if (currentLocation) { resolve(); return; }
+      navigator.geolocation?.getCurrentPosition(
+        pos => {
+          if (!currentLocation) {
+            currentLocation = { lat: pos.coords.latitude, lon: pos.coords.longitude, heading: 0 };
+            console.log("[Services] Raw GPS seed:", currentLocation.lat, currentLocation.lon);
+          }
+          resolve();
+        },
+        () => resolve(),
+        { timeout: 8000, enableHighAccuracy: true }
+      );
+    }, 4000);
+  });
+
+  // Poll up to 25 seconds, raw GPS seed runs in parallel
+  let waited = 0;
+  rawGPSSeed.catch(() => {});
+  while (!currentLocation && waited < 25000) {
+    await new Promise(r => setTimeout(r, 300));
+    waited += 300;
+  }
+
+  if (currentLocation && hospitalList) {
+    const { lat, lon } = currentLocation;
+    if (hospitalLoading) hospitalLoading.textContent = "Finding nearby hospitals…";
+    await fetchAndRenderHospitals(lat, lon);
   } else {
     if (hospitalLoading) hospitalLoading.style.display = "none";
-    if (hospitalList) { hospitalList.style.display = "flex"; hospitalList.innerHTML = `<li style="color:#64748b;font-size:13px;">Location unavailable — enable GPS</li>`; }
+    if (hospitalList) {
+      hospitalList.style.display = "flex";
+      hospitalList.innerHTML     = `<li style="color:#64748b;font-size:13px;">Location unavailable — enable GPS and reload</li>`;
+    }
   }
 
   if (!map) return;

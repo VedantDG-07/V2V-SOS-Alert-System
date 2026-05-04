@@ -1169,3 +1169,25 @@ button:active { transform: scale(.95); }
   border: 1px solid rgba(255,255,255,.06);
   text-align: center;
 }
+
+/* ── V2V Vehicle Marker Icon ── */
+.v2v-car-icon {
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+  transition: transform 0.85s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transform-origin: center center;
+}
+.v2v-car-icon img {
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+/* Remove default Leaflet marker shadow/outline for our custom icon */
+.leaflet-marker-icon.leaflet-zoom-animated {
+  will-change: transform, opacity;
+}
